@@ -461,3 +461,412 @@ def draw_walls():
             glVertex3f( half_size_x, y, wall_height)
             glVertex3f(-half_size_x, y, wall_height)
         glEnd()
+
+
+
+
+
+def update(dt):
+    global ball_pos, ball_vel, jumping, jump_start_time, score, lives, game_over, game_won
+    global last_tile, time_on_tile, show_timer, speed_multiplier, shield_active, shield_time
+    global speed_boost_active, speed_boost_timer, slow_trap_active, slow_trap_timer
+    global multiplier_active, multiplier_timer, multiplier_factor, ball_color, particles
+    global camera_angle, game_state, level
+
+    if game_state != "playing" or paused:
+        return
+
+    # Timers / power-ups
+    if speed_boost_active:
+        speed_boost_timer -= dt
+        if speed_boost_timer <= 0:
+            speed_boost_active = False
+            speed_multiplier /= 1.5
+
+    if slow_trap_active:
+        slow_trap_timer -= dt
+        if slow_trap_timer <= 0:
+            slow_trap_active = False
+            speed_multiplier *= 2.0
+
+    if multiplier_active:
+        multiplier_timer -= dt
+        if multiplier_timer <= 0:
+            multiplier_active = False
+            multiplier_factor = 1
+
+    if shield_active:
+        shield_time -= dt
+        if shield_time <= 0:
+            shield_active = False
+
+    update_particles(dt)
+
+    # Movement (WASD standard axes)
+    move_dir = [
+        (-1 if move_keys['a'] else (1 if move_keys['d'] else 0)),  # x
+        (1 if move_keys['w'] else (-1 if move_keys['s'] else 0))   # y
+    ]
+    if move_dir[0] and move_dir[1]:
+        inv = 1.0 / math.sqrt(2.0)
+        move_dir[0] *= inv; move_dir[1] *= inv
+
+    base_speed = 200.0
+    ball_vel[0] = move_dir[0] * base_speed * speed_multiplier
+    ball_vel[1] = move_dir[1] * base_speed * speed_multiplier
+
+    # Jumping
+    on_ground = ball_pos[2] <= ball_radius + 0.001
+    if space_pressed and on_ground and not jumping:
+        jumping = True
+        jump_start_time = time.time()
+        ball_vel[2] = jump_strength
+    if jumping and (not space_pressed or (time.time() - jump_start_time) >= max_jump_duration):
+        jumping = False
+
+    # Gravity
+    ball_vel[2] += gravity * dt
+
+    # Integrate
+    ball_pos[0] += ball_vel[0] * dt
+    ball_pos[1] += ball_vel[1] * dt
+    ball_pos[2] += ball_vel[2] * dt
+
+    # Ground collision
+    if ball_pos[2] < ball_radius:
+        ball_pos[2] = ball_radius
+        ball_vel[2] = 0
+        jumping = False
+
+    # Walls
+    if ball_pos[0] < -half_size_x + ball_radius:
+        ball_pos[0] = -half_size_x + ball_radius; ball_vel[0] = -ball_vel[0] * 0.8
+    elif ball_pos[0] > half_size_x - ball_radius:
+        ball_pos[0] = half_size_x - ball_radius; ball_vel[0] = -ball_vel[0] * 0.8
+
+    if ball_pos[1] < -half_size_y + ball_radius:
+        ball_pos[1] = -half_size_y + ball_radius; ball_vel[1] = -ball_vel[1] * 0.8
+    elif ball_pos[1] > half_size_y - ball_radius:
+        ball_pos[1] = half_size_y - ball_radius; ball_vel[1] = -ball_vel[1] * 0.8
+
+    # Moving platforms
+    for platform in moving_platforms:
+        platform['pos'][0] += platform['vel'][0] * dt
+        platform['pos'][1] += platform['vel'][1] * dt
+        if platform['vel'][0] != 0 and (platform['pos'][0] < platform['limits'][0] or platform['pos'][0] > platform['limits'][1]):
+            platform['vel'][0] *= -1
+        if platform['vel'][1] != 0 and (platform['pos'][1] < platform['limits'][0] or platform['pos'][1] > platform['limits'][1]):
+            platform['vel'][1] *= -1
+        dx = abs(ball_pos[0] - platform['pos'][0])
+        dy = abs(ball_pos[1] - platform['pos'][1])
+        dz = abs(ball_pos[2] - platform['pos'][2])
+        if (dx < (platform['size'][0] / 2 + ball_radius) and 
+            dy < (platform['size'][1] / 2 + ball_radius) and 
+            dz < (platform['size'][2] / 2 + ball_radius) and
+            ball_pos[2] > platform['pos'][2]):
+            ball_pos[2] = platform['pos'][2] + platform['size'][2] / 2 + ball_radius
+            ball_vel[2] = 0
+            jumping = False
+
+    # Teleporters
+    for tele in teleporters:
+        dx = ball_pos[0] - tele['pos'][0]
+        dy = ball_pos[1] - tele['pos'][1]
+        dz = ball_pos[2] - tele['pos'][2]
+        if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 15:
+            ball_pos[0], ball_pos[1], ball_pos[2] = tele['target']
+
+    # Obstacles
+    for o in obstacles:
+        dx = ball_pos[0] - o['pos'][0]
+        dy = ball_pos[1] - o['pos'][1]
+        dz = ball_pos[2] - o['pos'][2]
+        if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + o['size']:
+            if shield_active:
+                shield_active = False
+            else:
+                lives -= 1
+                if lives <= 0:
+                    game_state = "game_over"
+                else:
+                    reset_game(reset_score=False, reset_lives=False)
+                break
+
+    # Power-ups
+    for boost in speed_boosts:
+        if boost['active']:
+            dx = ball_pos[0] - boost['pos'][0]
+            dy = ball_pos[1] - boost['pos'][1]
+            dz = ball_pos[2] - boost['pos'][2]
+            if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 10:
+                boost['active'] = False
+                speed_boost_active = True
+                speed_boost_timer = boost['duration']
+                speed_multiplier *= 1.5
+
+    for trap in slow_traps:
+        if trap['active']:
+            dx = ball_pos[0] - trap['pos'][0]
+            dy = ball_pos[1] - trap['pos'][1]
+            dz = ball_pos[2] - trap['pos'][2]
+            if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 10:
+                trap['active'] = False
+                slow_trap_active = True
+                slow_trap_timer = trap['duration']
+                speed_multiplier /= 2.0
+
+    for bonus in time_bonuses:
+        if bonus['active']:
+            dx = ball_pos[0] - bonus['pos'][0]
+            dy = ball_pos[1] - bonus['pos'][1]
+            dz = ball_pos[2] - bonus['pos'][2]
+            if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 10:
+                bonus['active'] = False
+                # reduce time spent on current tile
+                global time_on_tile
+                time_on_tile = max(0, time_on_tile - bonus['time'])
+
+    for life in life_collectibles:
+        if life['active']:
+            dx = ball_pos[0] - life['pos'][0]
+            dy = ball_pos[1] - life['pos'][1]
+            dz = ball_pos[2] - life['pos'][2]
+            if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 10:
+                life['active'] = False
+                lives += 1
+
+    for mult in multipliers:
+        if mult['active']:
+            dx = ball_pos[0] - mult['pos'][0]
+            dy = ball_pos[1] - mult['pos'][1]
+            dz = ball_pos[2] - mult['pos'][2]
+            if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 10:
+                mult['active'] = False
+                multiplier_active = True
+                multiplier_timer = mult['duration']
+                multiplier_factor = mult['factor']
+
+    for shield in shields:
+        if not shield['collected']:
+            dx = ball_pos[0] - shield['pos'][0]
+            dy = ball_pos[1] - shield['pos'][1]
+            dz = ball_pos[2] - shield['pos'][2]
+            if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 15:
+                shield['collected'] = True
+                shield_active = True
+                shield_time = 10.0
+
+    # Collectibles
+    remaining = []
+    for c in collectibles:
+        dx = ball_pos[0] - c['pos'][0]
+        dy = ball_pos[1] - c['pos'][1]
+        dz = ball_pos[2] - c['pos'][2]
+        if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 15:
+            global score
+            score += 1 * multiplier_factor
+        else:
+            remaining.append(c)
+    collectibles[:] = remaining
+
+    # Special points
+    for sp in special_points:
+        if not sp['collected']:
+            dx = ball_pos[0] - sp['pos'][0]
+            dy = ball_pos[1] - sp['pos'][1]
+            dz = ball_pos[2] - sp['pos'][2]
+            if math.sqrt(dx*dx + dy*dy + dz*dz) < ball_radius + 15:
+                score += 5 * multiplier_factor
+                sp['collected'] = True
+
+    # Holes
+    i = int((ball_pos[0] + half_size_x) // tile_size)
+    j = int((ball_pos[1] + half_size_y) // tile_size)
+    if 0 <= i < grid_size_x and 0 <= j < grid_size_y and ball_pos[2] <= ball_radius + 1:
+        if (i, j) in holes:
+            if shield_active:
+                shield_active = False
+            else:
+                lives -= 1
+                if lives <= 0:
+                    game_state = "game_over"
+                else:
+                    reset_game(reset_score=False, reset_lives=False)
+
+    # Tile timer (discourage camping)
+    if 0 <= i < grid_size_x and 0 <= j < grid_size_y and (i, j) not in holes:
+        if ball_pos[2] <= ball_radius + 1:
+            if (i, j) == last_tile:
+                time_on_tile += dt
+                show_timer = True
+                if time_on_tile >= max_tile_time:
+                    lives -= 1
+                    time_on_tile = 0.0
+                    last_tile = None
+                    show_timer = False
+                    if lives <= 0:
+                        game_state = "game_over"
+                    else:
+                        reset_game(reset_score=False, reset_lives=False)
+            else:
+                last_tile = (i, j)
+                time_on_tile = 0.0
+                show_timer = True
+    else:
+        last_tile = None
+        time_on_tile = 0.0
+        show_timer = False
+
+    # Win condition
+    if len(collectibles) == 0 and all(sp['collected'] for sp in special_points):
+        if level < max_level:
+            level += 1
+            reset_game(reset_score=False, reset_lives=False)
+        else:
+            game_state = "win"
+
+    # Ball color by power-ups
+    if speed_boost_active:
+        ball_color[:] = [0.0, 0.0, 1.0]
+    elif slow_trap_active:
+        ball_color[:] = [1.0, 0.0, 1.0]
+    elif multiplier_active:
+        ball_color[:] = [1.0, 1.0, 0.0]
+    elif shield_active:
+        ball_color[:] = [0.0, 1.0, 1.0]
+    else:
+        ball_color[:] = [1.0, 0.2, 0.2]
+
+def display():
+    setup_scene()
+    glEnable(GL_DEPTH_TEST)
+    draw_skybox()
+    draw_floor()
+    draw_walls()
+    draw_moving_platforms()
+    draw_teleporters()
+    draw_power_ups()
+    draw_collectibles()
+    draw_special_points()
+    draw_obstacles()
+    draw_ball()
+    draw_particles()
+    draw_hud()
+
+    if game_state == "menu":
+        draw_menu()
+    elif game_state == "help":
+        draw_help()
+    elif game_state == "game_over":
+        draw_game_over()
+    elif game_state == "win":
+        draw_win_screen()
+
+    glutSwapBuffers()
+
+def idle():
+    global time_last
+    now = time.time()
+    dt = now - time_last
+    time_last = now
+
+    # Clamp dt to avoid huge steps when window regains focus
+    if dt > 0.05:
+        dt = 0.05
+
+    if game_state == "playing" and not paused:
+        update(dt)
+
+    glutPostRedisplay()
+
+def keyboard(key, x, y):
+    global space_pressed, theme, camera_mode, paused, game_state
+    key = key.decode('utf-8').lower()
+
+    if game_state == "menu":
+        if key == ' ':
+            reset_game()
+        elif key == 'h':
+            game_state = "help"
+        elif key in ['q', '\x1b']:  # 'q' or ESC
+            sys.exit(0)
+    elif game_state == "help":
+        game_state = "menu"
+    elif game_state == "playing":
+        if key == ' ':
+            space_pressed = True
+        elif key in ['a', 'd', 'w', 's']:
+            move_keys[key] = True
+        elif key == 'p':
+            paused = not paused
+        elif key == 'r':
+            reset_game()
+        elif key == 't':
+            idx = themes.index(theme)
+            theme = themes[(idx + 1) % len(themes)]
+        elif key == 'c':
+            camera_mode = "overhead" if camera_mode == "follow" else ("first_person" if camera_mode == "overhead" else "follow")
+        elif key == 'm':
+            game_state = "menu"
+        elif key in ['q', '\x1b']:
+            sys.exit(0)
+    elif game_state in ["game_over", "win"]:
+        if key == 'r':
+            reset_game()
+        elif key == 'm':
+            game_state = "menu"
+        elif key in ['q', '\x1b']:
+            sys.exit(0)
+
+def keyboard_up(key, x, y):
+    global space_pressed
+    key = key.decode('utf-8').lower()
+    if key == ' ':
+        space_pressed = False
+    elif key in ['a', 'd', 'w', 's']:
+        move_keys[key] = False
+
+def special(key, x, y):
+    global camera_angle, camera_height
+    if key == GLUT_KEY_LEFT:
+        camera_angle += 5
+    elif key == GLUT_KEY_RIGHT:
+        camera_angle -= 5
+    elif key == GLUT_KEY_UP:
+        camera_height += 20
+    elif key == GLUT_KEY_DOWN:
+        camera_height -= 20
+    camera_angle %= 360
+    camera_height = max(100, min(1000, camera_height))
+
+def init_gl():
+    glEnable(GL_DEPTH_TEST)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    setup_projection()
+    setup_lighting()
+    # Nice default clear
+    glClearColor(0.5, 0.8, 1.0, 1.0)
+
+def main():
+    glutInit(sys.argv)  # <-- FIX: pass argv
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
+    glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+    glutCreateWindow(b"Beautiful 3D Ball Game")
+    glutReshapeFunc(reshape)
+    glutDisplayFunc(display)
+    glutIdleFunc(idle)
+    glutKeyboardFunc(keyboard)
+    glutKeyboardUpFunc(keyboard_up)
+    glutSpecialFunc(special)
+
+    init_gl()
+
+    # Initialize game
+    generate_holes()
+    reset_game()
+
+    glutMainLoop()
+
+if __name__ == '__main__':
+    main()
