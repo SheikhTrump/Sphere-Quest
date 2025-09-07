@@ -462,6 +462,363 @@ def draw_walls():
             glVertex3f(-half_size_x, y, wall_height)
         glEnd()
 
+def draw_collectibles():
+    for c in collectibles:
+        glPushMatrix()
+        x, y, z = c['pos']
+        glTranslatef(x, y, z)
+        glColor3f(*c['color'])
+        if c['type'] == 'cube':
+            glutSolidCube(20)
+        elif c['type'] == 'torus':
+            glutSolidTorus(5, 10, 16, 16)
+        elif c['type'] == 'pyramid':
+            glBegin(GL_TRIANGLES)
+            glVertex3f(0, 0, 10); glVertex3f(-10, -10, 0); glVertex3f(10, -10, 0)
+            glVertex3f(0, 0, 10); glVertex3f(10, -10, 0); glVertex3f(10, 10, 0)
+            glVertex3f(0, 0, 10); glVertex3f(10, 10, 0); glVertex3f(-10, 10, 0)
+            glVertex3f(0, 0, 10); glVertex3f(-10, 10, 0); glVertex3f(-10, -10, 0)
+            glEnd()
+            glBegin(GL_QUADS)
+            glVertex3f(-10, -10, 0); glVertex3f(10, -10, 0); glVertex3f(10, 10, 0); glVertex3f(-10, 10, 0)
+            glEnd()
+        elif c['type'] == 'sphere':
+            glutSolidSphere(10, 16, 16)
+        elif c['type'] == 'teapot':
+            glutSolidTeapot(10)
+        glPopMatrix()
+
+def draw_special_points():
+    for sp in special_points:
+        if not sp['collected']:
+            glPushMatrix()
+            x, y, z = sp['pos']
+            glTranslatef(x, y, z)
+            glColor3f(1.0, 1.0, 0.0)
+            glBegin(GL_TRIANGLE_FAN)
+            glVertex3f(0, 0, 0)
+            for i in range(11):
+                angle = i * 2 * math.pi / 10
+                radius = 12 if i % 2 == 0 else 6
+                glVertex3f(math.cos(angle) * radius, math.sin(angle) * radius, 0)
+            glEnd()
+            glPopMatrix()
+
+def draw_obstacles():
+    for o in obstacles:
+        glPushMatrix()
+        x, y, z = o['pos']
+        glTranslatef(x, y, z)
+        glColor3f(*o['color'])
+        if o['type'] == 'sphere':
+            glutSolidSphere(o['size'], 32, 32)
+        elif o['type'] == 'cube':
+            glutSolidCube(o['size'] * 2)
+        elif o['type'] == 'cone':
+            glutSolidCone(o['size'], o['size'] * 1.5, 32, 32)
+        glPopMatrix()
+
+def draw_ball():
+    glPushMatrix()
+    glTranslatef(ball_pos[0], ball_pos[1], ball_pos[2])
+    glColor3f(*ball_color)
+    glutSolidSphere(ball_radius, 32, 32)
+    # Shield effect
+    if shield_active:
+        glDisable(GL_LIGHTING)
+        glEnable(GL_BLEND)
+        glColor4f(0.0, 0.8, 1.0, 0.2)
+        glutSolidSphere(ball_radius * 1.5, 32, 32)
+        glDisable(GL_BLEND)
+        glEnable(GL_LIGHTING)
+    glPopMatrix()
+
+def draw_particles():
+    if not particles:
+        return
+    glDisable(GL_LIGHTING)
+    glEnable(GL_BLEND)
+    for p in particles:
+        glPushMatrix()
+        glTranslatef(p['pos'][0], p['pos'][1], p['pos'][2])
+        glColor4f(p['color'][0], p['color'][1], p['color'][2], max(0.0, min(1.0, p['life'] / 30.0)))
+        glutSolidSphere(p['size'], 8, 8)
+        glPopMatrix()
+    glDisable(GL_BLEND)
+    glEnable(GL_LIGHTING)
+
+def draw_moving_platforms():
+    for platform in moving_platforms:
+        glPushMatrix()
+        x, y, z = platform['pos']
+        glTranslatef(x, y, z)
+        glColor3f(0.5, 0.5, 0.5)
+        glScalef(platform['size'][0], platform['size'][1], platform['size'][2])
+        glutSolidCube(1)
+        glPopMatrix()
+
+def draw_power_ups():
+    def draw_box(pos, color, size=15):
+        glPushMatrix()
+        x, y, z = pos
+        glTranslatef(x, y, z)
+        glColor3f(*color)
+        glutSolidCube(size)
+        glPopMatrix()
+
+    for boost in speed_boosts:
+        if boost['active']:
+            draw_box(boost['pos'], (0.0, 0.0, 1.0), 15)
+
+    for trap in slow_traps:
+        if trap['active']:
+            draw_box(trap['pos'], (1.0, 0.0, 1.0), 15)
+
+    for bonus in time_bonuses:
+        if bonus['active']:
+            draw_box(bonus['pos'], (0.5, 0.5, 0.0), 15)
+
+    for life in life_collectibles:
+        if life['active']:
+            draw_box(life['pos'], (1.0, 0.0, 0.0), 20)
+
+    for mult in multipliers:
+        if mult['active']:
+            draw_box(mult['pos'], (1.0, 1.0, 0.0), 18)
+
+    for shield in shields:
+        if not shield['collected']:
+            draw_box(shield['pos'], (0.0, 1.0, 1.0), 25)
+
+def draw_teleporters():
+    glDisable(GL_LIGHTING)
+    glEnable(GL_BLEND)
+    for tele in teleporters:
+        glPushMatrix()
+        x, y, z = tele['pos']
+        glTranslatef(x, y, z)
+        glColor4f(0.0, 1.0, 0.0, 0.7)
+        glutSolidTorus(5, 15, 16, 16)
+        glRotatef(time.time() * 100 % 360, 0, 0, 1)
+        glColor4f(1.0, 1.0, 1.0, 0.5)
+        glutSolidCone(10, 20, 16, 16)
+        glPopMatrix()
+    glDisable(GL_BLEND)
+    glEnable(GL_LIGHTING)
+
+def draw_text(x, y, text):
+    glRasterPos2f(x, y)
+    for ch in text:
+        glutBitmapCharacter(font, ord(ch))
+
+def draw_hud():
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+
+    glDisable(GL_LIGHTING)
+    glEnable(GL_BLEND)
+
+    # Draw score / lives
+    glColor3f(1, 1, 1)
+    draw_text(10, WINDOW_HEIGHT - 30, f"Score: {score}")
+    draw_text(10, WINDOW_HEIGHT - 60, f"Lives: {lives}")
+    draw_text(10, WINDOW_HEIGHT - 90, f"Level: {level}")
+    draw_text(10, WINDOW_HEIGHT - 120, f"High Score: {high_score}")
+
+    y_offset = 150
+    if speed_boost_active:
+        glColor3f(0, 1, 1); draw_text(10, WINDOW_HEIGHT - y_offset, f"Speed Boost: {speed_boost_timer:.1f}s"); y_offset += 30
+    if slow_trap_active:
+        glColor3f(1, 0, 1); draw_text(10, WINDOW_HEIGHT - y_offset, f"Slow Trap: {slow_trap_timer:.1f}s"); y_offset += 30
+    if multiplier_active:
+        glColor3f(1, 1, 0); draw_text(10, WINDOW_HEIGHT - y_offset, f"Multiplier x{multiplier_factor}: {multiplier_timer:.1f}s"); y_offset += 30
+    if shield_active:
+        glColor3f(0, 1, 1); draw_text(10, WINDOW_HEIGHT - y_offset, f"Shield: {shield_time:.1f}s"); y_offset += 30
+
+    if show_timer:
+        time_left = max(0, max_tile_time - time_on_tile)
+        glColor3f(1, 0.5, 0); draw_text(10, WINDOW_HEIGHT - y_offset, f"Move in: {time_left:.1f}s"); y_offset += 30
+
+    glColor3f(1, 1, 1)
+    draw_text(WINDOW_WIDTH - 200, WINDOW_HEIGHT - 30, f"Camera: {camera_mode}")
+    draw_text(WINDOW_WIDTH - 200, WINDOW_HEIGHT - 60, f"Theme: {theme}")
+    if paused:
+        glColor3f(1, 0, 0); draw_text(WINDOW_WIDTH // 2 - 50, WINDOW_HEIGHT // 2, "PAUSED")
+
+    glDisable(GL_BLEND)
+    glEnable(GL_LIGHTING)
+
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def draw_menu():
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glDisable(GL_LIGHTING)
+    glEnable(GL_BLEND)
+
+    glColor4f(0.1, 0.1, 0.1, 0.8)
+    glBegin(GL_QUADS)
+    glVertex2f(WINDOW_WIDTH // 2 - 200, WINDOW_HEIGHT // 2 + 150)
+    glVertex2f(WINDOW_WIDTH // 2 + 200, WINDOW_HEIGHT // 2 + 150)
+    glVertex2f(WINDOW_WIDTH // 2 + 200, WINDOW_HEIGHT // 2 - 150)
+    glVertex2f(WINDOW_WIDTH // 2 - 200, WINDOW_HEIGHT // 2 - 150)
+    glEnd()
+
+    glColor3f(1, 1, 1)
+    draw_text(WINDOW_WIDTH // 2 - 80, WINDOW_HEIGHT // 2 + 100, "3D BALL GAME")
+    draw_text(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2 + 50, "Press SPACE to Start")
+    draw_text(WINDOW_WIDTH // 2 - 80, WINDOW_HEIGHT // 2, "Press H for Help")
+    draw_text(WINDOW_WIDTH // 2 - 70, WINDOW_HEIGHT // 2 - 50, "Press Q to Quit")
+    draw_text(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2 - 100, f"High Score: {high_score}")
+
+    glDisable(GL_BLEND)
+    glEnable(GL_LIGHTING)
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def draw_help():
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glDisable(GL_LIGHTING)
+    glEnable(GL_BLEND)
+
+    glColor4f(0.1, 0.1, 0.1, 0.9)
+    glBegin(GL_QUADS)
+    glVertex2f(50, WINDOW_HEIGHT - 50)
+    glVertex2f(WINDOW_WIDTH - 50, WINDOW_HEIGHT - 50)
+    glVertex2f(WINDOW_WIDTH - 50, 50)
+    glVertex2f(50, 50)
+    glEnd()
+
+    glColor3f(1, 1, 1)
+    draw_text(100, WINDOW_HEIGHT - 80, "CONTROLS:")
+    draw_text(100, WINDOW_HEIGHT - 110, "W/A/S/D - Move ball")
+    draw_text(100, WINDOW_HEIGHT - 140, "SPACE - Jump")
+    draw_text(100, WINDOW_HEIGHT - 170, "Arrow Keys - Rotate camera")
+    draw_text(100, WINDOW_HEIGHT - 200, "C - Change camera mode")
+    draw_text(100, WINDOW_HEIGHT - 230, "T - Change theme")
+    draw_text(100, WINDOW_HEIGHT - 260, "P - Pause game")
+    draw_text(100, WINDOW_HEIGHT - 290, "R - Restart game")
+    draw_text(100, WINDOW_HEIGHT - 320, "M - Toggle menu")
+    draw_text(100, WINDOW_HEIGHT - 350, "Q or ESC - Quit")
+
+    draw_text(100, WINDOW_HEIGHT - 400, "OBJECTIVE:")
+    draw_text(100, WINDOW_HEIGHT - 430, "Collect all items while avoiding holes and obstacles.")
+    draw_text(100, WINDOW_HEIGHT - 460, "Don't stay on the same tile for too long!")
+
+    draw_text(WINDOW_WIDTH // 2 - 100, 80, "Press any key to return")
+
+    glDisable(GL_BLEND)
+    glEnable(GL_LIGHTING)
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def draw_game_over():
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glDisable(GL_LIGHTING)
+    glEnable(GL_BLEND)
+
+    glColor4f(0.5, 0.0, 0.0, 0.8)
+    glBegin(GL_QUADS)
+    glVertex2f(WINDOW_WIDTH // 2 - 200, WINDOW_HEIGHT // 2 + 100)
+    glVertex2f(WINDOW_WIDTH // 2 + 200, WINDOW_HEIGHT // 2 + 100)
+    glVertex2f(WINDOW_WIDTH // 2 + 200, WINDOW_HEIGHT // 2 - 100)
+    glVertex2f(WINDOW_WIDTH // 2 - 200, WINDOW_HEIGHT // 2 - 100)
+    glEnd()
+
+    glColor3f(1, 1, 1)
+    draw_text(WINDOW_WIDTH // 2 - 70, WINDOW_HEIGHT // 2 + 50, "GAME OVER")
+    draw_text(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2, f"Score: {score}")
+    draw_text(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2 - 50, "Press R to Restart")
+    draw_text(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2 - 80, "Press M for Menu")
+
+    glDisable(GL_BLEND)
+    glEnable(GL_LIGHTING)
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def draw_win_screen():
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glDisable(GL_LIGHTING)
+    glEnable(GL_BLEND)
+
+    glColor4f(0.0, 0.5, 0.0, 0.8)
+    glBegin(GL_QUADS)
+    glVertex2f(WINDOW_WIDTH // 2 - 200, WINDOW_HEIGHT // 2 + 100)
+    glVertex2f(WINDOW_WIDTH // 2 + 200, WINDOW_HEIGHT // 2 + 100)
+    glVertex2f(WINDOW_WIDTH // 2 + 200, WINDOW_HEIGHT // 2 - 100)
+    glVertex2f(WINDOW_WIDTH // 2 - 200, WINDOW_HEIGHT // 2 - 100)
+    glEnd()
+
+    glColor3f(1, 1, 1)
+    draw_text(WINDOW_WIDTH // 2 - 50, WINDOW_HEIGHT // 2 + 50, "YOU WIN!")
+    draw_text(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2, f"Score: {score}")
+    draw_text(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2 - 50, "Press R to Restart")
+    draw_text(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2 - 80, "Press M for Menu")
+
+    glDisable(GL_BLEND)
+    glEnable(GL_LIGHTING)
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def update_particles(dt):
+    global particles
+    for p in particles[:]:
+        p['pos'][0] += p['vel'][0] * dt
+        p['pos'][1] += p['vel'][1] * dt
+        p['pos'][2] += p['vel'][2] * dt
+        p['life'] -= 1
+        if p['life'] <= 0:
+            particles.remove(p)
+    # Emit some trailing particles
+    if random.random() < 0.3:
+        particles.append({
+            'pos': [ball_pos[0] + random.uniform(-10, 10),
+                    ball_pos[1] + random.uniform(-10, 10),
+                    ball_pos[2] + random.uniform(-5, 5)],
+            'vel': [random.uniform(-5, 5), random.uniform(-5, 5), random.uniform(2, 5)],
+            'color': ball_color[:],
+            'size': random.uniform(2, 5),
+            'life': random.randint(10, 30)
+        })
 
 
 
